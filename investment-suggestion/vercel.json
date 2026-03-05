@@ -1,14 +1,31 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm run build",
-  "devCommand": "pnpm run dev",
-  "installCommand": "pnpm install",
-  "framework": "nextjs",
-  "regions": ["hnd1"],
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/stock/(data|analyze)",
+      "methods": ["POST"],
+      "dest": "/api/stock/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
   "functions": {
-    "src/app/api/**/*.ts": {
-      "memory": 1024,
-      "maxDuration": 30
+    "api/stock/data": {
+      "maxDuration": 60
+    },
+    "api/stock/analyze": {
+      "maxDuration": 60
     }
   }
 }

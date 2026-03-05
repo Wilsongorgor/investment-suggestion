@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { callLLM } from '@/lib/llm-client';
 
-// 声明 Edge Runtime（可选，Cloudflare 会自动处理）
+// 声明 Edge Runtime（适用于 Vercel）
 export const runtime = 'edge';
 
+// 增加超时处理
+export const maxDuration = 60; // 60秒超时
 export async function POST(request: NextRequest) {
   try {
+    // 解析请求数据
     const { stockData } = await request.json();
 
     if (!stockData) {
@@ -169,6 +172,7 @@ ${stockData.capitalFlow?.retailInflow ? `散户资金: ${stockData.capitalFlow.r
       }
       content = content.trim();
       
+      // 尝试解析JSON
       const analysis = JSON.parse(content);
       return NextResponse.json({ analysis });
     } catch (parseError) {
@@ -183,14 +187,23 @@ ${stockData.capitalFlow?.retailInflow ? `散户资金: ${stockData.capitalFlow.r
   } catch (error) {
     console.error('AI分析错误:', error);
     
-    // 如果是环境变量未配置的错误，返回提示
-    if (error instanceof Error && error.message.includes('缺少豆包 API 配置')) {
+    // 处理超时错误
+    if (error instanceof Error && error.message.includes('超时')) {
       return NextResponse.json(
-        { error: '请配置 DOUBAO_API_KEY 和 DOUBAO_MODEL_ID 环境变量' },
+        { error: 'AI分析超时，请稍后重试' },
+        { status: 408 }
+      );
+    }
+    
+    // 如果是环境变量未配置的错误，返回提示
+    if (error instanceof Error && error.message.includes('COZE_API_KEY')) {
+      return NextResponse.json(
+        { error: '请配置 COZE_API_KEY 环境变量' },
         { status: 500 }
       );
     }
     
+    // 其他错误
     return NextResponse.json(
       { error: 'AI分析失败，请稍后重试' },
       { status: 500 }

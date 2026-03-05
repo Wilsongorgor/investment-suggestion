@@ -1,15 +1,15 @@
 /**
  * LLM API 客户端
- * 使用硅基流动 (SiliconFlow) API
+ * 使用扣子 (Coze) API
  * 
  * 配置方式：
- * - 环境变量 SILICONFLOW_API_KEY: API 密钥
- * - 环境变量 SILICONFLOW_MODEL: 模型名称（可选，默认 deepseek-ai/DeepSeek-V3.2）
+ * - 环境变量 COZE_API_KEY: API 密钥
+ * - 环境变量 COZE_MODEL: 模型名称（可选，默认 doubao-pro-1.5）
  * 
- * Cloudflare Pages 配置：
- * Dashboard -> Settings -> Environment variables -> 添加以下变量
- * - SILICONFLOW_API_KEY
- * - SILICONFLOW_MODEL
+ * Vercel 配置：
+ * Settings -> Environment Variables -> 添加以下变量
+ * - COZE_API_KEY
+ * - COZE_MODEL
  */
 
 // ============================================
@@ -17,31 +17,28 @@
 // ============================================
 
 interface EnvVars {
-  SILICONFLOW_API_KEY?: string;
-  SILICONFLOW_MODEL?: string;
+  COZE_API_KEY?: string;
+  COZE_MODEL?: string;
 }
 
 /**
  * 获取环境变量
- * 兼容 Cloudflare Workers 和 Node.js 环境
+ * 兼容 Vercel Edge Runtime 和 Node.js 环境
  */
 function getEnv(): EnvVars {
-  // Cloudflare Workers / Pages 环境
-  if (typeof globalThis !== 'undefined') {
-    const g = globalThis as any;
-    if (g.SILICONFLOW_API_KEY) {
-      return {
-        SILICONFLOW_API_KEY: g.SILICONFLOW_API_KEY,
-        SILICONFLOW_MODEL: g.SILICONFLOW_MODEL,
-      };
-    }
-  }
-  
-  // Node.js 环境
+  // Vercel Edge Runtime 环境
   if (typeof process !== 'undefined' && process.env) {
     return {
-      SILICONFLOW_API_KEY: process.env.SILICONFLOW_API_KEY,
-      SILICONFLOW_MODEL: process.env.SILICONFLOW_MODEL,
+      COZE_API_KEY: process.env.COZE_API_KEY,
+      COZE_MODEL: process.env.COZE_MODEL,
+    };
+  }
+  
+  // 浏览器环境（仅用于开发）
+  if (typeof window !== 'undefined' && (window as any).COZE_API_KEY) {
+    return {
+      COZE_API_KEY: (window as any).COZE_API_KEY,
+      COZE_MODEL: (window as any).COZE_MODEL,
     };
   }
   
@@ -52,11 +49,11 @@ function getEnv(): EnvVars {
 // API 配置
 // ============================================
 
-// 硅基流动 API 端点
-const API_ENDPOINT = 'https://api.siliconflow.cn/v1/chat/completions';
+// 扣子 API 端点
+const API_ENDPOINT = 'https://api.coze.cn/v1/chat/completions';
 
 // 默认模型
-const DEFAULT_MODEL = 'deepseek-ai/DeepSeek-V3.2';
+const DEFAULT_MODEL = 'doubao-pro-1.5';
 
 // LLM 响应类型
 export interface LLMResponse {
@@ -73,10 +70,10 @@ export interface LLMResponse {
  */
 function getApiKey(): string {
   const env = getEnv();
-  const apiKey = env.SILICONFLOW_API_KEY;
+  const apiKey = env.COZE_API_KEY;
   
   if (!apiKey) {
-    throw new Error('请配置 SILICONFLOW_API_KEY 环境变量');
+    throw new Error('请配置 COZE_API_KEY 环境变量');
   }
   
   return apiKey;
@@ -87,14 +84,14 @@ function getApiKey(): string {
  */
 function getModel(): string {
   const env = getEnv();
-  return env.SILICONFLOW_MODEL || DEFAULT_MODEL;
+  return env.COZE_MODEL || DEFAULT_MODEL;
 }
 
 /**
- * 调用硅基流动 API
- * 文档：https://docs.siliconflow.cn/api-reference/chat-completions
+ * 调用扣子 API
+ * 文档：https://docs.coze.cn/api-reference/chat-completions
  */
-export async function callSiliconFlowLLM(
+export async function callCozeLLM(
   systemPrompt: string,
   userContent: string,
   options?: {
@@ -105,53 +102,67 @@ export async function callSiliconFlowLLM(
   const apiKey = getApiKey();
   const model = getModel();
 
-  const response = await fetch(API_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent },
-      ],
-      temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.maxTokens ?? 4096,
-      stream: false,
-    }),
-  });
+  // 设置超时时间（120秒）
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('硅基流动 API 错误:', response.status, errorText);
-    throw new Error(`硅基流动 API 请求失败: ${response.status} - ${errorText}`);
-  }
+  try {
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.maxTokens ?? 4096,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
 
-  const data = await response.json() as {
-    choices: Array<{
-      message: {
-        content: string;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('扣子 API 错误:', response.status, errorText);
+      throw new Error(`扣子 API 请求失败: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as {
+      choices: Array<{
+        message: {
+          content: string;
+        };
+      }>;
+      usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
       };
-    }>;
-    usage?: {
-      prompt_tokens: number;
-      completion_tokens: number;
-      total_tokens: number;
     };
-  };
 
-  return {
-    content: data.choices[0]?.message?.content || '',
-    usage: data.usage,
-  };
+    return {
+      content: data.choices[0]?.message?.content || '',
+      usage: data.usage,
+    };
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('API 请求超时，请稍后重试');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /**
- * 流式调用硅基流动 API
+ * 流式调用扣子 API
  */
-export async function* streamSiliconFlowLLM(
+export async function* streamCozeLLM(
   systemPrompt: string,
   userContent: string,
   options?: {
@@ -162,38 +173,43 @@ export async function* streamSiliconFlowLLM(
   const apiKey = getApiKey();
   const model = getModel();
 
-  const response = await fetch(API_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent },
-      ],
-      temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.maxTokens ?? 4096,
-      stream: true,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`硅基流动 API 请求失败: ${response.status} - ${errorText}`);
-  }
-
-  if (!response.body) {
-    throw new Error('响应体为空');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  // 设置超时时间（120秒）
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
 
   try {
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.maxTokens ?? 4096,
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`扣子 API 请求失败: ${response.status} - ${errorText}`);
+    }
+
+    if (!response.body) {
+      throw new Error('响应体为空');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
     while (true) {
       const { done, value } = await reader.read();
       
@@ -230,8 +246,13 @@ export async function* streamSiliconFlowLLM(
         }
       }
     }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('API 请求超时，请稍后重试');
+    }
+    throw error;
   } finally {
-    reader.releaseLock();
+    clearTimeout(timeoutId);
   }
 }
 
@@ -246,7 +267,7 @@ export async function callLLM(
     maxTokens?: number;
   }
 ): Promise<LLMResponse> {
-  return callSiliconFlowLLM(systemPrompt, userContent, options);
+  return callCozeLLM(systemPrompt, userContent, options);
 }
 
 /**
@@ -260,5 +281,5 @@ export async function* streamLLM(
     maxTokens?: number;
   }
 ): AsyncGenerator<string, void, unknown> {
-  yield* streamSiliconFlowLLM(systemPrompt, userContent, options);
+  yield* streamCozeLLM(systemPrompt, userContent, options);
 }
